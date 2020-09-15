@@ -1,0 +1,105 @@
+---
+title: "00 Synthesize Data"
+author: "Logan Wu"
+date: "15/09/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(sf)
+library(randomNames)
+
+data.dir = "../data"
+n = 100
+n.households = 50
+n.workplaces = 10
+p.workforce = 0.5
+
+sim.days = 100
+```
+
+This RMarkdown document is designed to synthesize an epidemic dataset.
+
+## Load data
+
+```{r}
+address.points = st_read(file.path(data.dir, "Address_Points", "Address Points.shp")) %>%
+  select(GISID, StrName, Suburb, AddressPnt) %>%
+  st_zm(drop = T, what = "ZM")
+
+addresses = address.points %>%
+  sample_n(n.households)
+
+occupations = c("Medical", "Admin", "Trades")
+workplaces = address.points %>%
+  sample_n(n.workplaces) %>%
+  mutate(occupations = sample(occupations, n(), replace=T))
+```
+
+## Generate people
+
+These are not real people!
+
+```{r}
+people = addresses %>%
+  # generate names
+  mutate(ethnicity = sample(2:6, n.households, replace=T)) %>%
+  sample_n(n, replace=T) %>%
+  arrange(GISID) %>%
+  mutate(full.name = randomNames(1, ethnicity=ethnicity)) %>%
+  select(-ethnicity) %>%
+  separate(full.name, c("last.name", "first.name"), sep=", ") %>%
+  # ensure family name in household
+  group_by(GISID) %>%
+  mutate(last.name = first(last.name)) %>%
+  ungroup %>%
+  select(first.name, last.name, everything()) %>%
+  # add workplace
+  mutate(workplace = sample(workplaces$AddressPnt, n(), replace=T),
+         infection.day = NA,
+         infection.acquired = NA)
+```
+
+## Simulate infection
+
+```{r}
+# x[i,j] = partial likelihood of transmission from i to j
+x.distance = exp(-st_distance(people) %>% as.numeric / 10000)
+x.workplace = outer(people$workplace, people$workplace, function (a, b) a==b) %>% as.numeric
+inv.diag = 1 - diag(n)
+
+# define viral shedding as a function of infection day
+infection.day = c(0, 2, 5, 14)
+infectivity = c(0, 1, 1, 0)
+infectivity = approxfun(infection.day, infectivity)
+qplot(infection.day, infectivity(infection.day), geom="line")
+
+# initialise
+people$infection.day = c(1, rep(NA, n-1))
+people$infection.acquired = c(0, rep(NA, n-1))
+
+# importance parameters - arbitrary but choose good values!
+b.distance = 5e-3
+b.workplace = 5e-3
+b.rand = 0
+
+# iterate
+for (day in 1:sim.days) {
+  infectivity.matrix = replicate(n, infectivity(people$infection.day))
+  x.rand = matrix(runif(n*n), n, n)
+  likelihood = (b.distance * x.distance + b.workplace * x.workplace + b.rand * x.rand) * infectivity.matrix * inv.diag
+  likelihood.sums = colSums(likelihood, na.rm=T)
+  likelihood[!is.na(people$infection.day)] = 0  # infected people cannot be reinfected
+  infect = likelihood.sums >= sort(likelihood.sums, T)[5]
+  infect = likelihood.sums > runif(n)
+  people$infection.day[is.na(people$infection.day) & infect] = 0
+  people$infection.acquired[is.na(people$infection.acquired) & infect] = day
+  people$infection.day = people$infection.day + 1
+}
+
+people %>% filter(infection.day > 0)
+table(people$infection.acquired)
+```
