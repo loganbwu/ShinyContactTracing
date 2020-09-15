@@ -1,0 +1,10 @@
+images/*
+logs/*
+rsconnect/*
+*.html
+*.zip
+*.log
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
