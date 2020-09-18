@@ -129,7 +129,7 @@ shinyServer(function(input, output, session) {
             theme(legend.position = "none",
                   axis.text.y = element_blank(),
                   axis.ticks.y = element_blank()) +
-            labs(title = "Infectious periods", x = NULL, y = NULL)
+            labs(x = NULL, y = NULL)
         ggplotly(g, tooltip = c("text")) %>%
             layout(plot_bgcolor  = "rgba(0, 0, 0, 0)",
                    paper_bgcolor = "rgba(0, 0, 0, 0)",
@@ -161,7 +161,7 @@ shinyServer(function(input, output, session) {
         person.sf = person.subgraph() %>% nodes_as_sf %>% st_transform(4326)
         box = person.sf %>% st_bbox %>% as.numeric
         leafletProxy("map", data = person.sf) %>%
-            clearMarkers() %>%
+            clearMarkerClusters() %>%
             addMarkers(
                 layerId = ~PID,
                 label = ~PID,
