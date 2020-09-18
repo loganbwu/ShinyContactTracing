@@ -21,6 +21,7 @@ library(visNetwork)
 library(tmap)
 library(DT)
 library(tidygraph)
+library(plotly)
 tmap_mode("view")
 
 nodes_as_sf <- function(g) {
@@ -42,6 +43,7 @@ set.seed(0)
 
 ```{r}
 people = st_read(gpkg.path, "people")
+names(people) = names(people) %>% str_replace("\\.", " ")
 n = nrow(people)
 
 # Read graph from database
@@ -64,7 +66,7 @@ infection.day = c(0, 2, 5, 14)
 infectivity = c(0, 1, 1, 0)
 infectivity = approxfun(infection.day, infectivity)
 # calculate infectivity at time of acquisition
-x.infectivity = outer(people$Infection.acquired, people$Infection.acquired,
+x.infectivity = outer(people$`Infection acquired`, people$`Infection acquired`,
                       function(a, b) infectivity(b - a)) * inv.diag
 
 # importance parameters - in theory subject to machine learning!
@@ -73,7 +75,7 @@ b.workplace = 5e-3
 
 likelihood = (b.distance * x.distance + b.workplace * x.workplace) * x.infectivity
 mle = apply(likelihood, 2, which.max) %>% unlist
-people$from_PID[!is.na(people$Infection.acquired)] = people$PID[mle]
+people$from_PID[!is.na(people$`Infection acquired`)] = people$PID[mle]
 
 likelihood.df = likelihood%>%
   as_tibble %>%
@@ -114,13 +116,13 @@ pal = function (x, colors, na.col="grey30") {
   cols.rgb[cols.is.na] = na.col
   cols.rgb
 }
-colors = pal(people$Infection.acquired, c("steelblue", "grey"))
+colors = pal(people$`Infection acquired`, c("steelblue", "grey"))
 visNetwork(
   graph %>%
     nodes_as_sf %>%
     mutate(id = row_number(),
            label = PID,
-           title=paste0("<a style='color:black'>", format(Infection.acquired, "%e %B, %Y"), "</a>"),
+           title=paste0("<a style='color:black'>", format(`Infection acquired`, "%e %B, %Y"), "</a>"),
            color = colors),
   graph %>%
     edges_as_sf %>%
@@ -147,13 +149,13 @@ subgraph = graph %>%
            node_distance_to(pid) <= order)
 
 # linked contacts
-colors = pal(subgraph %>% nodes_as_sf %>% pull(Infection.acquired), c("steelblue", "grey"))
+colors = pal(subgraph %>% nodes_as_sf %>% pull(`Infection acquired`), c("steelblue", "grey"))
 visNetwork(
   subgraph %>%
     nodes_as_sf %>%
     mutate(id = row_number(),
            label = PID,
-           title=paste0("<a style='color:black'>", format(Infection.acquired, "%e %B, %Y"), "</a>"),
+           title=paste0("<a style='color:black'>", format(`Infection acquired`, "%e %B, %Y"), "</a>"),
            color = colors),
   subgraph %>%
     edges_as_sf %>%
@@ -198,4 +200,31 @@ datatable(downstream.contacts, style="bootstrap", rownames=F) %>%
               backgroundRepeat = 'no-repeat',
               backgroundPosition = "left") %>%
   formatRound(columns="likelihood", digits=3)
+```
+
+## Timeline
+
+```{r}
+confirmed.contacts = people %>%
+  filter(PID %in% c(infections$to[infections$from==pid], infections$from[infections$to==pid], pid)) %>%
+  arrange(`Infection acquired`) %>%
+  mutate(`Infection end` = `Infection acquired` + 14,
+         PID = PID %>% as.character %>% fct_inorder,
+         label = paste(paste("PID:", PID),
+                       paste("Name:", `First name`, `Last name`),
+                       paste("Acquired:", format(`Infection acquired`, "%e %b, %Y")),
+                       sep="<br>"),
+         color = ifelse(PID == pid, "case", "contact"))
+person = people %>% filter(PID == pid)
+
+g = ggplot(confirmed.contacts, aes(text = label, color=color)) +
+  geom_vline(xintercept = as.numeric(person$`Infection acquired`), alpha=0.5) +
+  geom_segment(aes(x = `Infection acquired`, y = PID, xend = `Infection end`, yend = PID)) +
+  geom_point(aes(x = `Infection acquired`, y = PID)) +
+  geom_text(aes(x = `Infection acquired`, y = PID, label = PID), hjust=1, nudge_x = -1) +
+  scale_color_manual(values=c("case"="firebrick", "contact"="steelblue")) +
+  scale_x_date() +
+  theme_bw() +
+  theme(legend.position = "none")
+ggplotly(g, tooltip = c("text"))
 ```

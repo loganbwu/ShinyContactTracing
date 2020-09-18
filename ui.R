@@ -11,6 +11,7 @@ library(shiny)
 library(DT)
 library(visNetwork)
 library(leaflet)
+library(plotly)
 source("functions.R")
 
 navbarPage(
@@ -18,13 +19,14 @@ navbarPage(
     inverse = T,
     position = "fixed-top",
     tabPanel(
-        "Network",
+        "Contacts",
         sidebarLayout(
             sidebarPanel(
                 style = "position:fixed; width:33%; margin-top:64px; margin-right: 16px; height:90%",
                 p("Data is generated from a random name generator, random Melbourne addresses, and a simple infection model. This has no connection with real events or the Victorian DHHS."),
                 textInput("PID", "PID", 1),
-                tableOutput("table_pid")
+                tableOutput("table_pid"),
+                plotlyOutput("timeline")
             ),
             
             # Show a plot of the generated distribution
@@ -38,7 +40,7 @@ navbarPage(
                     ),
                     column(
                         6,
-                        leafletOutput("map")
+                        leafletOutput("map", height="505px")
                     )
                 ),
                 h2("Potential upstream"),

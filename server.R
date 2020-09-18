@@ -7,6 +7,7 @@ library(DT)
 library(tidygraph)
 library(leaflet)
 library(RSQLite)
+library(plotly)
 source("functions.R")
 
 data.dir = "data-processed"
@@ -49,6 +50,10 @@ shinyServer(function(input, output, session) {
             pull(PID)
         updateTextInput(session, "PID", value=node.pid)
     })
+    # observeEvent(input$map_marker_click, {
+    #     marker.pid = input$map_marker_click$id
+    #     updateTextInput(session, "PID", value=marker.pid)
+    # })
     observeEvent(input$table_upstream_rows_selected, {
         row.pid = person.upstream() %>%
             slice(input$table_upstream_rows_selected) %>%
@@ -76,7 +81,7 @@ shinyServer(function(input, output, session) {
         upstream.likelihood = likelihood[,pid()]
         upstream.contacts = people %>%
             mutate(likelihood = upstream.likelihood,
-                   Relationship = ifelse(PID %in% infections$from[infections$to==pid()], "Upstream", NA)) %>%
+                   Relation = ifelse(PID %in% infections$from[infections$to==pid()], "Upstream", NA)) %>%
             # filter(!is.na(likelihood)) %>%
             select(-StrName, -Suburb) %>%
             st_drop_geometry %>%
@@ -87,11 +92,24 @@ shinyServer(function(input, output, session) {
         downstream.likelihood = likelihood[pid(),]
         downstream.contacts = people %>%
             mutate(likelihood = downstream.likelihood,
-                   Relationship = ifelse(PID %in% infections$to[infections$from==pid()], "Downstream", NA)) %>%
+                   Relation = ifelse(PID %in% infections$to[infections$from==pid()], "Downstream", NA)) %>%
             # filter(!is.na(likelihood)) %>%
             select(-StrName, -Suburb) %>%
             st_drop_geometry %>%
             arrange(desc(likelihood))
+    })
+    
+    confirmed.contacts = reactive({
+        people %>%
+            filter(PID %in% c(infections$to[infections$from==pid()], infections$from[infections$to==pid()], pid())) %>%
+            arrange(desc(`Infection acquired`)) %>%
+            mutate(`Infection end` = `Infection acquired` + 14,
+                   PID = PID %>% as.character %>% fct_inorder,
+                   label = paste(paste("PID:", PID),
+                                 paste("Name:", `First name`, `Last name`),
+                                 paste("Acquired:", format(`Infection acquired`, "%e %b, %Y")),
+                                 sep="<br>"),
+                   color = ifelse(PID == pid(), "case", "contact"))
     })
     
     output$table_pid = renderTable(
@@ -99,16 +117,30 @@ shinyServer(function(input, output, session) {
         rownames=T, colnames=F, striped=T, hover=T, width="100%"
     )
     
+    output$timeline = renderPlotly({
+        g = ggplot(confirmed.contacts(), aes(text = label, color=color)) +
+            geom_vline(xintercept = as.numeric(person()$`Infection acquired`), alpha=0.5) +
+            geom_segment(aes(x = `Infection acquired`, y = PID, xend = `Infection end`, yend = PID)) +
+            geom_point(aes(x = `Infection acquired`, y = PID)) +
+            geom_text(aes(x = `Infection acquired`, y = PID, label = PID), hjust=1, nudge_x = -1) +
+            scale_x_date() +
+            scale_color_manual(values=c("case"="firebrick", "contact"="steelblue")) +
+            theme_bw() +
+            theme(legend.position = "none",
+                  axis.text.y = element_blank(),
+                  axis.ticks.y = element_blank()) +
+            labs(title = "Infectious periods", x = NULL, y = NULL)
+        ggplotly(g, tooltip = c("text")) %>%
+            layout(plot_bgcolor  = "rgba(0, 0, 0, 0)",
+                   paper_bgcolor = "rgba(0, 0, 0, 0)",
+                   fig_bgcolor   = "rgba(0, 0, 0, 0)")
+    })
+    
     output$subgraph_vis = renderVisNetwork({
         pids = person.subgraph() %>% nodes_as_sf %>% pull(PID)
-        # print(pids)
-        # print(pids == pid())
         dates = person.subgraph() %>% nodes_as_sf %>% pull(`Infection acquired`)
         colors = pal(dates, c("steelblue", "grey"))
-        print(colors)
-        print(pids == pid())
-        colors[1] == "#FFFFFF"
-        print(colors)
+        colors[pids == pid()] <- "firebrick"
         visNetwork(
             person.subgraph() %>%
                 nodes_as_sf %>%
@@ -119,24 +151,29 @@ shinyServer(function(input, output, session) {
             person.subgraph() %>%
                 edges_as_sf %>%
                 mutate(arrows = "to")) %>%
-            visEvents(select = "function(nodes) {
-                                    Shiny.onInputChange('current_node_id', nodes.nodes);
-                                ;}") %>%
+            visEvents(select = "function(nodes) { Shiny.onInputChange('current_node_id', nodes.nodes); }") %>%
             visOptions(highlightNearest = list(enabled=T, hover=T))
     })
     
-    output$map = renderLeaflet({
+    output$map = renderLeaflet({ leaflet() %>% addProviderTiles(providers$CartoDB.Positron) })
+    
+    observe({
         person.sf = person.subgraph() %>% nodes_as_sf %>% st_transform(4326)
-        leaflet() %>%
-            addTiles() %>%
+        box = person.sf %>% st_bbox %>% as.numeric
+        leafletProxy("map", data = person.sf) %>%
+            clearMarkers() %>%
             addMarkers(
-                data = person.sf,
+                layerId = ~PID,
+                label = ~PID,
                 popup = ~paste(PID,
                                paste("Name:", `First name`, `Last name`),
                                paste("Address:", Address),
                                paste("Acquired:", format(`Infection acquired`, "%e %B, %Y")),
-                               sep = "<br>")
-            )
+                               sep = "<br>"),
+                clusterOptions = markerClusterOptions(maxClusterRadius=10)
+            ) %>%
+            fitBounds(lng1 = box[1], lat1 = box[2], lng2 = box[3], lat2 = box[4],
+                      options = list(padding = c(100, 100)))
     })
     
     output$table_upstream = renderDT(
