@@ -1,0 +1,201 @@
+---
+title: "01 Estimate Contacts"
+author: "Logan Wu"
+date: "`r paste('Generated', format(Sys.time(), '%d %B, %Y'))`"
+output:
+  html_document:
+    self_contained: false
+    lib_dir: libs
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(sf)
+library(visNetwork)
+library(tmap)
+library(DT)
+library(tidygraph)
+tmap_mode("view")
+
+nodes_as_sf <- function(g) {
+  stopifnot(inherits(g, "tbl_graph"))
+  g %>% activate(nodes) %>% as_tibble %>% st_as_sf
+}
+
+edges_as_sf <- function(g) {
+  stopifnot(inherits(g, "tbl_graph"))
+  g %>% activate(edges) %>% as_tibble
+}
+
+data.dir = "../data-processed"
+gpkg.path = file.path(data.dir, "data.gpkg")
+set.seed(0)
+```
+
+## Load data
+
+```{r}
+people = st_read(gpkg.path, "people")
+n = nrow(people)
+
+# Read graph from database
+con = dbConnect(SQLite(), gpkg.path)
+infections = dbReadTable(con, "infections")
+
+datatable(people %>% st_drop_geometry, style="bootstrap", rownames=F)
+```
+
+## Estimate likelihoods
+
+```{r, out.width="100%"}
+# x[i,j] = partial likelihood of transmission from i to j
+x.distance = exp(-st_distance(people) %>% as.numeric / 10000)
+x.workplace = outer(people$Workplace, people$Workplace, function (a, b) a==b) %>% as.numeric
+inv.diag = 1 - diag(n)
+
+# define viral shedding as a function of infection day
+infection.day = c(0, 2, 5, 14)
+infectivity = c(0, 1, 1, 0)
+infectivity = approxfun(infection.day, infectivity)
+# calculate infectivity at time of acquisition
+x.infectivity = outer(people$Infection.acquired, people$Infection.acquired,
+                      function(a, b) infectivity(b - a)) * inv.diag
+
+# importance parameters - in theory subject to machine learning!
+b.distance = 5e-3
+b.workplace = 5e-3
+
+likelihood = (b.distance * x.distance + b.workplace * x.workplace) * x.infectivity
+mle = apply(likelihood, 2, which.max) %>% unlist
+people$from_PID[!is.na(people$Infection.acquired)] = people$PID[mle]
+
+likelihood.df = likelihood%>%
+  as_tibble %>%
+  mutate(row = row_number()) %>%
+  pivot_longer(-row, names_to="col", values_to="likelihood") %>%
+  mutate(col = col %>% str_remove("V") %>% as.numeric) %>%
+  drop_na
+
+ggplot(likelihood.df, aes(x=col, y=row, fill=likelihood)) +
+  geom_tile() +
+  scale_x_continuous(position="top") +
+  scale_y_reverse() +
+  labs(title="Probability of i infecting j")
+```
+
+## Create graph from MLE
+
+```{r}
+nodes = people
+edges = people %>%
+  st_drop_geometry %>%
+  select(from=from_PID, to=PID) %>%
+  drop_na
+
+graph = tbl_graph(nodes=nodes, edges=infections, node_key="PID")
+```
+
+## Visualise
+
+```{r, out.width="100%"}
+pal = function (x, colors, na.col="grey30") {
+  p = colorRamp(colors)
+  x.rs = scales::rescale(as.numeric(x))
+  cols.mat = p(x.rs)
+  cols.is.na = which(is.na(cols.mat[,1]))
+  cols.mat[cols.is.na,] = 0
+  cols.rgb = rgb(cols.mat[,1], cols.mat[,2], cols.mat[,3], maxColorValue=255)
+  cols.rgb[cols.is.na] = na.col
+  cols.rgb
+}
+colors = pal(people$Infection.acquired, c("steelblue", "grey"))
+visNetwork(
+  graph %>%
+    nodes_as_sf %>%
+    mutate(id = row_number(),
+           label = PID,
+           title=paste0("<a style='color:black'>", format(Infection.acquired, "%e %B, %Y"), "</a>"),
+           color = colors),
+  graph %>%
+    edges_as_sf %>%
+    mutate(arrows = "to"))
+```
+
+## Drill down {.tabset}
+
+
+```{r}
+pid = 96
+order = 1
+
+# profile
+person = people %>% filter(PID == pid)
+knitr::kable(person %>% st_drop_geometry)
+```
+
+### Subgraph
+
+```{r, out.width="100%"}
+subgraph = graph %>%
+  filter(node_distance_from(pid) <= order |
+           node_distance_to(pid) <= order)
+
+# linked contacts
+colors = pal(subgraph %>% nodes_as_sf %>% pull(Infection.acquired), c("steelblue", "grey"))
+visNetwork(
+  subgraph %>%
+    nodes_as_sf %>%
+    mutate(id = row_number(),
+           label = PID,
+           title=paste0("<a style='color:black'>", format(Infection.acquired, "%e %B, %Y"), "</a>"),
+           color = colors),
+  subgraph %>%
+    edges_as_sf %>%
+    mutate(arrows = "to"))
+```
+
+### Upstream
+
+```{r}
+upstream.likelihood = likelihood[,pid]
+upstream.contacts = people %>%
+  mutate(likelihood = upstream.likelihood) %>%
+  filter(!is.na(likelihood)) %>%
+  select(-from_PID, -StrName, -Suburb) %>%
+  st_drop_geometry %>%
+  arrange(desc(likelihood))
+
+datatable(upstream.contacts, style="bootstrap", rownames=F) %>%
+  formatStyle("likelihood",
+              background = styleColorBar(upstream.contacts$likelihood, "lightblue"),
+              backgroundSize = "95% 50%",
+              backgroundRepeat = 'no-repeat',
+              backgroundPosition = "left") %>%
+  formatRound(columns="likelihood", digits=3)
+```
+
+### Downstream
+
+```{r}
+downstream.likelihood = likelihood[pid,]
+downstream.contacts = people %>%
+  mutate(likelihood = downstream.likelihood) %>%
+  filter(!is.na(likelihood)) %>%
+  select(-from_PID, -StrName, -Suburb) %>%
+  st_drop_geometry %>%
+  arrange(desc(likelihood))
+
+datatable(downstream.contacts, style="bootstrap", rownames=F) %>%
+  formatStyle("likelihood",
+              background = styleColorBar(downstream.contacts$likelihood, "lightblue"),
+              backgroundSize = "95% 50%",
+              backgroundRepeat = 'no-repeat',
+              backgroundPosition = "left") %>%
+  formatRound(columns="likelihood", digits=3)
+```

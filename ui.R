@@ -2,32 +2,52 @@
 # This is the user-interface definition of a Shiny web application. You can
 # run the application by clicking 'Run App' above.
 #
-# Find out more about building applications with Shiny here:
+# Find out more about building applications with S2hiny here:
 #
 #    http://shiny.rstudio.com/
 #
 
 library(shiny)
+library(DT)
+library(visNetwork)
+library(leaflet)
+source("functions.R")
 
-# Define UI for application that draws a histogram
-shinyUI(fluidPage(
-
-    # Application title
-    titlePanel("Old Faithful Geyser Data"),
-
-    # Sidebar with a slider input for number of bins
-    sidebarLayout(
-        sidebarPanel(
-            sliderInput("bins",
-                        "Number of bins:",
-                        min = 1,
-                        max = 50,
-                        value = 30)
-        ),
-
-        # Show a plot of the generated distribution
-        mainPanel(
-            plotOutput("distPlot")
+navbarPage(
+    title = "ContactTracer",
+    inverse = T,
+    position = "fixed-top",
+    tabPanel(
+        "Network",
+        sidebarLayout(
+            sidebarPanel(
+                style = "position:fixed; width:33%; margin-top:64px; margin-right: 16px; height:90%",
+                p("Data is generated from a random name generator, random Melbourne addresses, and a simple infection model. This has no connection with real events or the Victorian DHHS."),
+                textInput("PID", "PID", 1),
+                tableOutput("table_pid")
+            ),
+            
+            # Show a plot of the generated distribution
+            mainPanel(
+                style = "margin-top:64px",
+                fluidRow(
+                    column(
+                        6,
+                        sliderInput("graph_order", "Graph order", 1, min=1, max=10, step=1),
+                        visNetworkOutput("subgraph_vis")
+                    ),
+                    column(
+                        6,
+                        leafletOutput("map")
+                    )
+                ),
+                h2("Potential upstream"),
+                DTOutput("table_upstream"),
+                h2("Potential downstream"),
+                DTOutput("table_downstream")
+            )
         )
-    )
-))
+    ),
+    tabPanel.about
+)
+

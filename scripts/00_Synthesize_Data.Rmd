@@ -1,8 +1,15 @@
 ---
 title: "00 Synthesize Data"
 author: "Logan Wu"
-date: "15/09/2020"
-output: html_document
+date: "`r paste('Generated', format(Sys.time(), '%d %B, %Y'))`"
+output:
+  html_document:
+    self_contained: false
+    lib_dir: libs
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
 ---
 
 ```{r setup, include=FALSE}
@@ -10,15 +17,27 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(sf)
+library(lubridate)
 library(randomNames)
+library(tmap)
+library(knitr)
+library(kableExtra)
+library(RSQLite)
+source("../functions.R")
+tmap_mode("view")
 
 data.dir = "../data"
+data.p.dir = "../data-processed"
+gpkg.path = file.path(data.p.dir, "data.gpkg")
+con = dbConnect(SQLite(), dbname=gpkg.path)
+
 n = 100
-n.households = 50
-n.workplaces = 10
+n.households = n/2
+n.workplaces = n/5
 p.workforce = 0.5
 
-sim.days = 100
+sim.days = 500
+set.seed(0)
 ```
 
 This RMarkdown document is designed to synthesize an epidemic dataset.
@@ -27,7 +46,7 @@ This RMarkdown document is designed to synthesize an epidemic dataset.
 
 ```{r}
 address.points = st_read(file.path(data.dir, "Address_Points", "Address Points.shp")) %>%
-  select(GISID, StrName, Suburb, AddressPnt) %>%
+  select(GISID, StrName, Suburb, Address=AddressPnt) %>%
   st_zm(drop = T, what = "ZM")
 
 addresses = address.points %>%
@@ -51,55 +70,90 @@ people = addresses %>%
   arrange(GISID) %>%
   mutate(full.name = randomNames(1, ethnicity=ethnicity)) %>%
   select(-ethnicity) %>%
-  separate(full.name, c("last.name", "first.name"), sep=", ") %>%
+  separate(full.name, c("Last name", "First name"), sep=", ") %>%
   # ensure family name in household
   group_by(GISID) %>%
-  mutate(last.name = first(last.name)) %>%
+  mutate(`Last name` = first(`Last name`)) %>%
   ungroup %>%
-  select(first.name, last.name, everything()) %>%
+  mutate(PID = row_number(),
   # add workplace
-  mutate(workplace = sample(workplaces$AddressPnt, n(), replace=T),
-         infection.day = NA,
-         infection.acquired = NA)
+  Workplace = sample(workplaces$Address, n(), replace=T)) %>%
+  select(PID, `First name`, `Last name`, everything(), -GISID)
+
+head(people) %>% kable(caption="First 6 people") %>% kable_styling()
+```
+
+## Define serial interval
+
+```{r}
+qplot(infection.day, infectivity(infection.day), geom="line", main="Infectivity after acquisition date")
 ```
 
 ## Simulate infection
 
-```{r}
+```{r, results="hide", out.width="100%"}
 # x[i,j] = partial likelihood of transmission from i to j
 x.distance = exp(-st_distance(people) %>% as.numeric / 10000)
-x.workplace = outer(people$workplace, people$workplace, function (a, b) a==b) %>% as.numeric
-inv.diag = 1 - diag(n)
-
-# define viral shedding as a function of infection day
-infection.day = c(0, 2, 5, 14)
-infectivity = c(0, 1, 1, 0)
-infectivity = approxfun(infection.day, infectivity)
-qplot(infection.day, infectivity(infection.day), geom="line")
+x.workplace = outer(people$Workplace, people$Workplace, function (a, b) a==b) %>% as.numeric
 
 # initialise
 people$infection.day = c(1, rep(NA, n-1))
 people$infection.acquired = c(0, rep(NA, n-1))
+infections = list(from = 1, to = 1)
 
 # importance parameters - arbitrary but choose good values!
 b.distance = 5e-3
 b.workplace = 5e-3
-b.rand = 0
 
 # iterate
-for (day in 1:sim.days) {
-  infectivity.matrix = replicate(n, infectivity(people$infection.day))
+pb = txtProgressBar(max=sim.days, style=3)
+for (day in 1:50) {
+  x.infectivity = replicate(n, infectivity(people$infection.day)) * (1 - diag(n))
   x.rand = matrix(runif(n*n), n, n)
-  likelihood = (b.distance * x.distance + b.workplace * x.workplace + b.rand * x.rand) * infectivity.matrix * inv.diag
+  likelihood = (b.distance * x.distance + b.workplace * x.workplace) * x.infectivity
+  # small probability approximation, otherwise should be prod(1-p_i). I'm lazy and probabilities may be >1
   likelihood.sums = colSums(likelihood, na.rm=T)
-  likelihood[!is.na(people$infection.day)] = 0  # infected people cannot be reinfected
-  infect = likelihood.sums >= sort(likelihood.sums, T)[5]
+  # infect with unknown source
   infect = likelihood.sums > runif(n)
+  infect[infections$to] = FALSE  # infected people cannot be reinfected
+  # decide source from weights
+  if (sum(infect) > 0) {
+    infected.by = apply(matrix(likelihood[,infect], ncol=sum(infect)), 2, function (x) {
+      prob = x %>% replace_na(0)
+      if (sum(prob) == 0) prob = rep(1, length(prob))   # weights cannot be all zero
+      sample(1:n, 1, prob=prob)
+    })
+    # infections = tibble(from = infected.by, to = which(infect))
+    infections$from = c(infections$from, infected.by)
+    infections$to = c(infections$to, which(infect))
+  }
   people$infection.day[is.na(people$infection.day) & infect] = 0
   people$infection.acquired[is.na(people$infection.acquired) & infect] = day
   people$infection.day = people$infection.day + 1
+  setTxtProgressBar(pb, day)
 }
+people$infection.acquired = people$infection.acquired + today()
+people = people %>%
+  mutate(`Infection acquired` = infection.acquired) %>%
+  select(-infection.day, -infection.acquired)
 
-people %>% filter(infection.day > 0)
-table(people$infection.acquired)
+infections = as_tibble(infections)
+```
+
+## Visualise results
+
+```{r, out.width="100%"}
+ggplot() + geom_bar(data=people, aes(`Infection acquired`)) + labs(title="Infection dates")
+tm_shape(people %>%
+           mutate(`Infection acquired` = as.numeric(`Infection acquired`),
+                  `Day acquired` = `Infection acquired` - min(`Infection acquired`, na.rm=T) + 1)) +
+  tm_dots(col = "Day acquired")
+```
+
+## Save data
+
+```{r}
+st_write(people, gpkg.path, "people", append = F)
+
+dbWriteTable(con, "infections", infections, overwrite=T)
 ```

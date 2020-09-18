@@ -1,0 +1,51 @@
+
+div.outer {
+  position: fixed;
+  top: 50px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* Navbar */
+#navbar-logo {
+  position: absolute;
+  right: 10px;
+  height: 32px;
+  top: 50%;
+  -ms-transform: translate(0, -50%);
+  transform: translate(0, -50%);
+}
+
+#tablepane {
+  /* Appearance */
+  background-color: white;
+  padding: 0 20px 20px 20px;
+  width: 200px;
+  cursor: move;
+  /* Fade out while not hovering */
+  opacity: 0.8;
+  transition: opacity 250ms;
+  transition: width 250ms;
+}
+#tablepane:hover {
+  /* Fade in while hovering */
+  opacity: 1.0;
+  width: 440px;
+  transition-delay: 0;
+}
+
+/* Position and style citation */
+#cite {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  font-size: 12px;
+}
+
+.leaflet-container {
+    background: #fff;
+    outline: 0;
+}

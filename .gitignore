@@ -1,9 +1,13 @@
 images/*
 logs/*
 rsconnect/*
+data/*
+*/libs/*
+*_files/
 *.html
 *.zip
 *.log
+*.lnk
 .Rproj.user
 .Rhistory
 .RData
