@@ -82,7 +82,6 @@ shinyServer(function(input, output, session) {
         upstream.contacts = people %>%
             mutate(likelihood = upstream.likelihood,
                    Relation = ifelse(PID %in% infections$from[infections$to==pid()], "Upstream", NA)) %>%
-            # filter(!is.na(likelihood)) %>%
             select(-StrName, -Suburb) %>%
             st_drop_geometry %>%
             arrange(Relation, desc(likelihood))
@@ -93,7 +92,6 @@ shinyServer(function(input, output, session) {
         downstream.contacts = people %>%
             mutate(likelihood = downstream.likelihood,
                    Relation = ifelse(PID %in% infections$to[infections$from==pid()], "Downstream", NA)) %>%
-            # filter(!is.na(likelihood)) %>%
             select(-StrName, -Suburb) %>%
             st_drop_geometry %>%
             arrange(Relation, desc(likelihood))
@@ -130,11 +128,15 @@ shinyServer(function(input, output, session) {
                   axis.text.y = element_blank(),
                   axis.ticks.y = element_blank()) +
             labs(x = NULL, y = NULL)
+        n.contacts = nrow(confirmed.contacts())
+        g.height = 30 * n.contacts + 40  # 30px per bar + 40 for y labels
         ggplotly(g, tooltip = c("text")) %>%
             layout(plot_bgcolor  = "rgba(0, 0, 0, 0)",
                    paper_bgcolor = "rgba(0, 0, 0, 0)",
                    fig_bgcolor   = "rgba(0, 0, 0, 0)",
-                   margin = list(t=0, l=0, r=0, b=0))
+                   margin = list(t=0, l=0, r=0, b=0),
+                   height = g.height) %>%
+            config(displayModeBar = F)
     })
 
     output$subgraph_vis = renderVisNetwork({
@@ -152,30 +154,9 @@ shinyServer(function(input, output, session) {
             person.subgraph() %>%
                 edges_as_sf %>%
                 mutate(arrows = "to")) %>%
-        # visNetwork(tibble(id=0), tibble(from=0, to=0)) %>%
             visEvents(select = "function(nodes) { Shiny.onInputChange('current_node_id', nodes.nodes); }") %>%
             visOptions(highlightNearest = list(enabled=T, hover=T))
     })
-    
-    
-    # observe({
-    #     pids = person.subgraph() %>% nodes_as_sf %>% pull(PID)
-    #     dates = person.subgraph() %>% nodes_as_sf %>% pull(`Infection acquired`)
-    #     colors = pal(dates, c("steelblue", "grey"))
-    #     colors[pids == pid()] <- "firebrick"
-    #     visNetworkProxy("subgraph_vis") %>%
-    #         visSetData(
-    #             person.subgraph() %>%
-    #                 nodes_as_sf %>%
-    #                 mutate(id = row_number(),
-    #                        label = PID,
-    #                        title=paste0("<a style='color:black'>", format(`Infection acquired`, "%e %B, %Y"), "</a>"),
-    #                        color = colors),
-    #             person.subgraph() %>%
-    #                 edges_as_sf %>%
-    #                 mutate(arrows = "to")
-    #         )
-    # })
     
     output$map = renderLeaflet({ leaflet() %>% addProviderTiles(providers$CartoDB.Positron) })
     

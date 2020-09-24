@@ -22,7 +22,7 @@ navbarPage(
         "Contacts",
         sidebarLayout(
             sidebarPanel(
-                style = "position:fixed; width:33%; margin-top:64px; margin-right: 16px; height:calc(100vh - 80px); overflow-y: scroll;",
+                style = "position:fixed; width:33%; margin-top:64px; margin-right: 16px; height:calc(100vh - 80px); overflow-y: auto;",
                 p("Data is generated from a random name generator, random Melbourne addresses, and a simple infection model. This has no connection with real events or the Victorian DHHS."),
                 h3("Profile"),
                 textInput("PID", "PID", 1),
