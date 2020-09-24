@@ -85,7 +85,7 @@ shinyServer(function(input, output, session) {
             # filter(!is.na(likelihood)) %>%
             select(-StrName, -Suburb) %>%
             st_drop_geometry %>%
-            arrange(desc(likelihood))
+            arrange(Relation, desc(likelihood))
     })
     
     person.downstream = reactive({
@@ -96,7 +96,7 @@ shinyServer(function(input, output, session) {
             # filter(!is.na(likelihood)) %>%
             select(-StrName, -Suburb) %>%
             st_drop_geometry %>%
-            arrange(desc(likelihood))
+            arrange(Relation, desc(likelihood))
     })
     
     confirmed.contacts = reactive({
@@ -133,9 +133,10 @@ shinyServer(function(input, output, session) {
         ggplotly(g, tooltip = c("text")) %>%
             layout(plot_bgcolor  = "rgba(0, 0, 0, 0)",
                    paper_bgcolor = "rgba(0, 0, 0, 0)",
-                   fig_bgcolor   = "rgba(0, 0, 0, 0)")
+                   fig_bgcolor   = "rgba(0, 0, 0, 0)",
+                   margin = list(t=0, l=0, r=0, b=0))
     })
-    
+
     output$subgraph_vis = renderVisNetwork({
         pids = person.subgraph() %>% nodes_as_sf %>% pull(PID)
         dates = person.subgraph() %>% nodes_as_sf %>% pull(`Infection acquired`)
@@ -151,9 +152,30 @@ shinyServer(function(input, output, session) {
             person.subgraph() %>%
                 edges_as_sf %>%
                 mutate(arrows = "to")) %>%
+        # visNetwork(tibble(id=0), tibble(from=0, to=0)) %>%
             visEvents(select = "function(nodes) { Shiny.onInputChange('current_node_id', nodes.nodes); }") %>%
             visOptions(highlightNearest = list(enabled=T, hover=T))
     })
+    
+    
+    # observe({
+    #     pids = person.subgraph() %>% nodes_as_sf %>% pull(PID)
+    #     dates = person.subgraph() %>% nodes_as_sf %>% pull(`Infection acquired`)
+    #     colors = pal(dates, c("steelblue", "grey"))
+    #     colors[pids == pid()] <- "firebrick"
+    #     visNetworkProxy("subgraph_vis") %>%
+    #         visSetData(
+    #             person.subgraph() %>%
+    #                 nodes_as_sf %>%
+    #                 mutate(id = row_number(),
+    #                        label = PID,
+    #                        title=paste0("<a style='color:black'>", format(`Infection acquired`, "%e %B, %Y"), "</a>"),
+    #                        color = colors),
+    #             person.subgraph() %>%
+    #                 edges_as_sf %>%
+    #                 mutate(arrows = "to")
+    #         )
+    # })
     
     output$map = renderLeaflet({ leaflet() %>% addProviderTiles(providers$CartoDB.Positron) })
     
@@ -183,6 +205,9 @@ shinyServer(function(input, output, session) {
                         backgroundSize = "95% 50%",
                         backgroundRepeat = 'no-repeat',
                         backgroundPosition = "left") %>%
+            formatStyle("Relation",
+                        target = "row",
+                        fontWeight = styleEqual("Upstream", "bold")) %>%
             formatRound(columns="likelihood", digits=3),
         server=T
     )
@@ -194,6 +219,9 @@ shinyServer(function(input, output, session) {
                         backgroundSize = "95% 50%",
                         backgroundRepeat = 'no-repeat',
                         backgroundPosition = "left") %>%
+            formatStyle("Relation",
+                        target = "row",
+                        fontWeight = styleEqual("Downstream", "bold")) %>%
             formatRound(columns="likelihood", digits=3),
         server=T
     )
