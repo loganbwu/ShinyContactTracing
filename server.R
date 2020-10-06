@@ -8,7 +8,7 @@ library(tidygraph)
 library(leaflet)
 library(RSQLite)
 library(plotly)
-library(leaflet.minicharts)
+# library(leaflet.minicharts)
 source("functions.R")
 
 data.dir = "data-processed"
@@ -22,6 +22,8 @@ people$`Last.name`[1] = "Wu"
 people$Workplace[1] = "Arup, 699 Collins Street"
 people$Infection.acquired = Sys.Date() - people$Infection.acquired[1] + people$Infection.acquired
 names(people) = names(people) %>% str_replace("\\.", " ")
+popup.cols = c("PID", "First name", "Last name", "Address", "Workplace", "Infection acquired")
+people$popuptable = popupTable(people, popup.cols, row.numbers=F, feature.id=F)
 n = nrow(people)
 infections = dbReadTable(con, "infections")
 
@@ -115,7 +117,7 @@ shinyServer(function(input, output, session) {
             filter(node_distance_from(pid()) <= input$graph_order | node_distance_to(pid()) <= input$graph_order)
     })
     
-    shared.person.subgraph = SharedData$new(person)
+    # shared.person.subgraph = SharedData$new(person)
     
     person.upstream = reactive({
         cat("Person PID", person()$PID, "\n")
@@ -152,7 +154,7 @@ shinyServer(function(input, output, session) {
     })
     
     output$table_pid = renderTable(
-        person() %>% st_drop_geometry %>% t %>% as.data.frame,
+        person() %>% select(-popuptable) %>% st_drop_geometry %>% t %>% as.data.frame,
         rownames=T, colnames=F, striped=T, hover=T, width="100%"
     )
     
@@ -194,7 +196,7 @@ shinyServer(function(input, output, session) {
             person.subgraph() %>%
                 nodes_as_sf %>%
                 mutate(id = row_number(),
-                       title = label,
+                       title = popuptable,
                        label = PID, # visNetwork looks for these fields by default
                        color = colors),
             person.subgraph() %>%
@@ -224,14 +226,19 @@ shinyServer(function(input, output, session) {
                 data = person.sf %>% filter(PID != person()$PID),
                 icon = colorIcons$blue,
                 label = ~PID,
-                popup = ~label,
+                # popup = popupTable(person.sf %>% filter(PID != person()$PID),
+                #                    zcol = popup.cols, row.numbers=F, feature.id=F),
+                popup = ~ popuptable,
+                # popup = ~label,
+                # popup = "<table><tr><td>Cell 1</td><td>Cell 2</td></tr><tr><td>Val 1</td><td>Cell 2</td></tr></table>",
                 clusterOptions = markerClusterOptions(maxClusterRadius=10)
             ) %>%
             addMarkers(
                 data = person.sf %>% filter(PID == person()$PID),
                 icon = colorIcons$red,
                 label = ~PID,
-                popup = ~label,
+                # popup = ~label,
+                popup = ~popuptable
             ) %>%
             fitBounds(lng1 = box[1], lat1 = box[2], lng2 = box[3], lat2 = box[4],
                       options = list(padding = c(100, 100)))
