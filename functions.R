@@ -1,6 +1,7 @@
 library(sf)
 library(tidygraph)
 library(shiny)
+library(leaflet)
 
 nodes_as_sf <- function(g) {
   stopifnot(inherits(g, "tbl_graph"))
@@ -23,8 +24,25 @@ pal = function (x, colors, na.col="grey30") {
   cols.rgb
 }
 
+shinyInput <- function(FUN, len, id, ...) {
+  inputs <- character(len)
+  for (i in seq_len(len)) {
+    inputs[i] <- as.character(FUN(paste0(id, i), ...))
+  }
+  inputs
+}
+
 # viral shedding as a function of infection day
 infectivity = approxfun(c(0, 1, 3, 4, 5, 7, 12, 14), c(0, 0.1, 0.8, 1, 1, 0.7, 0.1, 0))
+
+colorIcons <- iconList(
+  blue = makeIcon("https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+                  "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png",
+                  shadowUrl="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png"),
+  red = makeIcon("https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+                 "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
+                 shadowUrl="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png")
+)
 
 tabPanel.about <- tabPanel(
   "About",

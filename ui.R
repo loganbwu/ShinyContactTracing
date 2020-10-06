@@ -22,7 +22,7 @@ navbarPage(
         "Contacts",
         sidebarLayout(
             sidebarPanel(
-                style = "position:fixed; width:33%; margin-top:64px; margin-right: 16px; height:calc(100vh - 80px); overflow-y: auto;",
+                style = "position:fixed; width:33%; margin-top:64px; height:calc(100vh - 80px); overflow-y: auto;",
                 p("Data is generated from a random name generator, random Melbourne addresses, and a simple infection model. This has no connection with real events or the Victorian DHHS."),
                 h3("Profile"),
                 textInput("PID", "PID", 1),
@@ -33,7 +33,7 @@ navbarPage(
             
             # Show a plot of the generated distribution
             mainPanel(
-                style = "margin-top:64px",
+                style = "margin-top:64px; padding-left:32px",
                 fluidRow(
                     column(
                         6,
@@ -45,10 +45,11 @@ navbarPage(
                         leafletOutput("map", height="485px")
                     )
                 ),
-                h3("Potential upstream"),
-                DTOutput("table_upstream"),
-                h3("Potential downstream"),
-                DTOutput("table_downstream")
+                tabsetPanel(
+                    type = "tabs",
+                    tabPanel("Potential upstream", br(), DTOutput("table_upstream")),
+                    tabPanel("Potential downstream", br(),  DTOutput("table_downstream"))
+                )
             )
         )
     ),

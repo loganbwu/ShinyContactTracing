@@ -54,16 +54,28 @@ shinyServer(function(input, output, session) {
     #     marker.pid = input$map_marker_click$id
     #     updateTextInput(session, "PID", value=marker.pid)
     # })
-    observeEvent(input$table_upstream_rows_selected, {
-        row.pid = person.upstream() %>%
-            slice(input$table_upstream_rows_selected) %>%
-            pull(PID)
+    # observeEvent(input$table_upstream_rows_selected, {
+    #     # update on click
+    #     row.pid = person.upstream() %>%
+    #         slice(input$table_upstream_rows_selected) %>%
+    #         pull(PID)
+    #     updateTextInput(session, "PID", value=row.pid)
+    # })
+    # observeEvent(input$table_downstream_rows_selected, {
+    #     # update on click
+    #     row.pid = person.downstream() %>%
+    #         slice(input$table_downstream_rows_selected) %>%
+    #         pull(PID)
+    #     updateTextInput(session, "PID", value=row.pid)
+    # })
+    observeEvent(input$us_select_button, {
+        row = input$us_select_button[1] %>% str_extract("[0-9]+$") %>% as.numeric
+        row.pid = person.upstream()$PID[row]
         updateTextInput(session, "PID", value=row.pid)
     })
-    observeEvent(input$table_downstream_rows_selected, {
-        row.pid = person.downstream() %>%
-            slice(input$table_downstream_rows_selected) %>%
-            pull(PID)
+    observeEvent(input$ds_select_button, {
+        row = input$ds_select_button[1] %>% str_extract("[0-9]+$") %>% as.numeric
+        row.pid = person.downstream()$PID[row]
         updateTextInput(session, "PID", value=row.pid)
     })
     
@@ -161,11 +173,16 @@ shinyServer(function(input, output, session) {
     output$map = renderLeaflet({ leaflet() %>% addProviderTiles(providers$CartoDB.Positron) })
     
     observe({
-        person.sf = person.subgraph() %>% nodes_as_sf %>% st_transform(4326)
+        # update map on person change
+        person.sf = person.subgraph() %>%
+            nodes_as_sf %>%
+            st_transform(4326) %>%
+            mutate(color = ifelse(PID == person()$PID, "red", "blue"))
         box = person.sf %>% st_bbox %>% as.numeric
         leafletProxy("map", data = person.sf) %>%
             clearMarkerClusters() %>%
             addMarkers(
+                icon = ~colorIcons[color],
                 layerId = ~PID,
                 label = ~PID,
                 popup = ~paste(PID,
@@ -180,7 +197,11 @@ shinyServer(function(input, output, session) {
     })
     
     output$table_upstream = renderDT(
-        datatable(person.upstream(), style="bootstrap", rownames=F, selection="single") %>%
+        person.upstream() %>%
+            mutate(` ` = shinyInput(actionButton, nrow(.), 'button_', label="Go", onclick='Shiny.onInputChange(\"us_select_button\",  this.id)')) %>%
+            select(` `, everything()) %>%
+            datatable(style="bootstrap", rownames=F, selection="single",
+                      escape = -which(colnames(person.upstream()) == " ")) %>%
             formatStyle("likelihood",
                         background = styleColorBar(person.upstream()$likelihood, "lightblue"),
                         backgroundSize = "95% 50%",
@@ -190,11 +211,15 @@ shinyServer(function(input, output, session) {
                         target = "row",
                         fontWeight = styleEqual("Upstream", "bold")) %>%
             formatRound(columns="likelihood", digits=3),
-        server=T
+        server = T
     )
     
     output$table_downstream = renderDT(
-        datatable(person.downstream(), style="bootstrap", rownames=F, selection="single") %>%
+        person.downstream() %>%
+            mutate(` ` = shinyInput(actionButton, nrow(.), 'button_', label="Go", onclick='Shiny.onInputChange(\"ds_select_button\",  this.id)')) %>%
+            select(` `, everything()) %>%
+            datatable(style="bootstrap", rownames=F, selection="single",
+                      escape = -which(colnames(person.downstream()) == " ")) %>%
             formatStyle("likelihood",
                         background = styleColorBar(person.downstream()$likelihood, "lightblue"),
                         backgroundSize = "95% 50%",
