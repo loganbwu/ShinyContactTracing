@@ -38,10 +38,22 @@ infectivity = approxfun(c(0, 1, 3, 4, 5, 7, 12, 14), c(0, 0.1, 0.8, 1, 1, 0.7, 0
 colorIcons <- iconList(
   blue = makeIcon("https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
                   "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png",
-                  shadowUrl="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png"),
+                  25, 41,
+                  12, 41,
+                  shadowUrl="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+                  shadowRetinaUrl = NULL,
+                  41, 41,
+                  12, 41,
+                  1, -34),
   red = makeIcon("https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
                  "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
-                 shadowUrl="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png")
+                 25, 41,
+                 12, 41,
+                 shadowUrl="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+                 shadowRetinaUrl = NULL,
+                 41, 41,
+                 12, 41,
+                 1, -34)
 )
 
 tabPanel.about <- tabPanel(

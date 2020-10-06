@@ -28,7 +28,7 @@ navbarPage(
                 textInput("PID", "PID", 1),
                 tableOutput("table_pid"),
                 h3("Infectious periods"),
-                plotlyOutput("timeline", height="300px")
+                plotlyOutput("timeline")
             ),
             
             # Show a plot of the generated distribution

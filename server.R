@@ -8,6 +8,7 @@ library(tidygraph)
 library(leaflet)
 library(RSQLite)
 library(plotly)
+library(leaflet.minicharts)
 source("functions.R")
 
 data.dir = "data-processed"
@@ -15,7 +16,11 @@ gpkg.path = file.path(data.dir, "data.gpkg")
 con = dbConnect(SQLite(), gpkg.path)
 
 # Load data
-people = st_read(gpkg.path, "people")
+people = st_read(gpkg.path, "people") %>% st_transform(4326)
+people$`First.name`[1] = "Logan"
+people$`Last.name`[1] = "Wu"
+people$Workplace[1] = "Arup, 699 Collins Street"
+people$Infection.acquired = Sys.Date() - people$Infection.acquired[1] + people$Infection.acquired
 names(people) = names(people) %>% str_replace("\\.", " ")
 n = nrow(people)
 infections = dbReadTable(con, "infections")
@@ -30,9 +35,31 @@ b.distance = 5e-3
 b.workplace = 5e-3
 likelihood = (b.distance * x.distance + b.workplace * x.workplace) * x.infectivity
 
-# Read graph from database
-edges = infections
-graph = tbl_graph(nodes=people, edges=edges, node_key="PID")
+# Read graph from database and create edge geometry by joining to people
+edges = infections %>%
+    slice(-1) %>%
+    left_join(people %>% select(PID), by=c("from"="PID")) %>%
+    left_join(people %>% select(PID), by=c("to"="PID"), suffix=c(".from", ".to"))
+coords = cbind(st_coordinates(edges$geom.from), st_coordinates(edges$geom.to))
+linestrings = st_sfc(
+    lapply(1:nrow(coords),
+           function(i){
+               st_linestring(matrix(coords[i,],ncol=2,byrow=TRUE))
+           }))
+edges = edges %>% select(from, to)
+# st_geometry(edges) = linestrings
+graph = tbl_graph(nodes=people, edges=edges, node_key="PID") %>%
+    activate(edges) %>%
+    mutate(geom = linestrings) %>%
+    activate(nodes) %>%
+    mutate(`Infection end` = `Infection acquired` + 14,
+           PID = PID %>% as.character %>% fct_inorder,
+           label = paste(paste("PID:", PID),
+                         paste("Name:", `First name`, `Last name`),
+                         paste("Address:", Address),
+                         paste("Workplace:", Workplace),
+                         paste("Acquired:", format(`Infection acquired`, "%e %b, %Y")),
+                         sep="<br>"))
 
 # Define server logic required to draw a histogram
 shinyServer(function(input, output, session) {
@@ -88,6 +115,8 @@ shinyServer(function(input, output, session) {
             filter(node_distance_from(pid()) <= input$graph_order | node_distance_to(pid()) <= input$graph_order)
     })
     
+    shared.person.subgraph = SharedData$new(person)
+    
     person.upstream = reactive({
         cat("Person PID", person()$PID, "\n")
         upstream.likelihood = likelihood[,pid()]
@@ -128,7 +157,12 @@ shinyServer(function(input, output, session) {
     )
     
     output$timeline = renderPlotly({
-        g = ggplot(confirmed.contacts(), aes(text = label, color=color)) +
+        g = person.subgraph() %>%
+            nodes_as_sf %>%
+            arrange(desc(`Infection acquired`)) %>%
+            mutate(PID = PID %>% as.character %>% fct_inorder,
+                   color = ifelse(PID == pid(), "case", "contact")) %>%
+            ggplot(aes(text = label, color=color)) +
             geom_vline(xintercept = as.numeric(person()$`Infection acquired`), alpha=0.5) +
             geom_segment(aes(x = `Infection acquired`, y = PID, xend = `Infection end`, yend = PID)) +
             geom_point(aes(x = `Infection acquired`, y = PID)) +
@@ -160,8 +194,8 @@ shinyServer(function(input, output, session) {
             person.subgraph() %>%
                 nodes_as_sf %>%
                 mutate(id = row_number(),
-                       label = PID,
-                       title=paste0("<a style='color:black'>", format(`Infection acquired`, "%e %B, %Y"), "</a>"),
+                       title = label,
+                       label = PID, # visNetwork looks for these fields by default
                        color = colors),
             person.subgraph() %>%
                 edges_as_sf %>%
@@ -179,18 +213,25 @@ shinyServer(function(input, output, session) {
             st_transform(4326) %>%
             mutate(color = ifelse(PID == person()$PID, "red", "blue"))
         box = person.sf %>% st_bbox %>% as.numeric
-        leafletProxy("map", data = person.sf) %>%
+        leafletProxy("map") %>%
+            clearMarkers() %>%
             clearMarkerClusters() %>%
+            clearShapes() %>%
+            addPolylines(data = person.subgraph() %>% edges_as_sf %>% pull(geom),
+                         weight = 1,
+                         color = "#555") %>%
             addMarkers(
-                icon = ~colorIcons[color],
-                layerId = ~PID,
+                data = person.sf %>% filter(PID != person()$PID),
+                icon = colorIcons$blue,
                 label = ~PID,
-                popup = ~paste(PID,
-                               paste("Name:", `First name`, `Last name`),
-                               paste("Address:", Address),
-                               paste("Acquired:", format(`Infection acquired`, "%e %B, %Y")),
-                               sep = "<br>"),
+                popup = ~label,
                 clusterOptions = markerClusterOptions(maxClusterRadius=10)
+            ) %>%
+            addMarkers(
+                data = person.sf %>% filter(PID == person()$PID),
+                icon = colorIcons$red,
+                label = ~PID,
+                popup = ~label,
             ) %>%
             fitBounds(lng1 = box[1], lat1 = box[2], lng2 = box[3], lat2 = box[4],
                       options = list(padding = c(100, 100)))
