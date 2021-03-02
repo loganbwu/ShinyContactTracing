@@ -8,7 +8,7 @@ library(tidygraph)
 library(leaflet)
 library(RSQLite)
 library(plotly)
-# library(leaflet.minicharts)
+library(leafpop)
 source("functions.R")
 
 data.dir = "data-processed"
@@ -49,7 +49,6 @@ linestrings = st_sfc(
                st_linestring(matrix(coords[i,],ncol=2,byrow=TRUE))
            }))
 edges = edges %>% select(from, to)
-# st_geometry(edges) = linestrings
 graph = tbl_graph(nodes=people, edges=edges, node_key="PID") %>%
     activate(edges) %>%
     mutate(geom = linestrings) %>%
@@ -79,24 +78,6 @@ shinyServer(function(input, output, session) {
             pull(PID)
         updateTextInput(session, "PID", value=node.pid)
     })
-    # observeEvent(input$map_marker_click, {
-    #     marker.pid = input$map_marker_click$id
-    #     updateTextInput(session, "PID", value=marker.pid)
-    # })
-    # observeEvent(input$table_upstream_rows_selected, {
-    #     # update on click
-    #     row.pid = person.upstream() %>%
-    #         slice(input$table_upstream_rows_selected) %>%
-    #         pull(PID)
-    #     updateTextInput(session, "PID", value=row.pid)
-    # })
-    # observeEvent(input$table_downstream_rows_selected, {
-    #     # update on click
-    #     row.pid = person.downstream() %>%
-    #         slice(input$table_downstream_rows_selected) %>%
-    #         pull(PID)
-    #     updateTextInput(session, "PID", value=row.pid)
-    # })
     observeEvent(input$us_select_button, {
         row = input$us_select_button[1] %>% str_extract("[0-9]+$") %>% as.numeric
         row.pid = person.upstream()$PID[row]
@@ -116,8 +97,6 @@ shinyServer(function(input, output, session) {
         graph %>%
             filter(node_distance_from(pid()) <= input$graph_order | node_distance_to(pid()) <= input$graph_order)
     })
-    
-    # shared.person.subgraph = SharedData$new(person)
     
     person.upstream = reactive({
         cat("Person PID", person()$PID, "\n")
@@ -186,7 +165,7 @@ shinyServer(function(input, output, session) {
                    height = g.height) %>%
             config(displayModeBar = F)
     })
-
+    
     output$subgraph_vis = renderVisNetwork({
         pids = person.subgraph() %>% nodes_as_sf %>% pull(PID)
         dates = person.subgraph() %>% nodes_as_sf %>% pull(`Infection acquired`)
@@ -226,18 +205,13 @@ shinyServer(function(input, output, session) {
                 data = person.sf %>% filter(PID != person()$PID),
                 icon = colorIcons$blue,
                 label = ~PID,
-                # popup = popupTable(person.sf %>% filter(PID != person()$PID),
-                #                    zcol = popup.cols, row.numbers=F, feature.id=F),
-                popup = ~ popuptable,
-                # popup = ~label,
-                # popup = "<table><tr><td>Cell 1</td><td>Cell 2</td></tr><tr><td>Val 1</td><td>Cell 2</td></tr></table>",
+                popup = ~popuptable,
                 clusterOptions = markerClusterOptions(maxClusterRadius=10)
             ) %>%
             addMarkers(
                 data = person.sf %>% filter(PID == person()$PID),
                 icon = colorIcons$red,
                 label = ~PID,
-                # popup = ~label,
                 popup = ~popuptable
             ) %>%
             fitBounds(lng1 = box[1], lat1 = box[2], lng2 = box[3], lat2 = box[4],
@@ -247,7 +221,7 @@ shinyServer(function(input, output, session) {
     output$table_upstream = renderDT(
         person.upstream() %>%
             mutate(` ` = shinyInput(actionButton, nrow(.), 'button_', label="Go", onclick='Shiny.onInputChange(\"us_select_button\",  this.id)')) %>%
-            select(` `, everything()) %>%
+            select(` `, everything(), -popuptable) %>%
             datatable(style="bootstrap", rownames=F, selection="single",
                       escape = -which(colnames(person.upstream()) == " ")) %>%
             formatStyle("likelihood",
@@ -265,7 +239,7 @@ shinyServer(function(input, output, session) {
     output$table_downstream = renderDT(
         person.downstream() %>%
             mutate(` ` = shinyInput(actionButton, nrow(.), 'button_', label="Go", onclick='Shiny.onInputChange(\"ds_select_button\",  this.id)')) %>%
-            select(` `, everything()) %>%
+            select(` `, everything(), -popuptable) %>%
             datatable(style="bootstrap", rownames=F, selection="single",
                       escape = -which(colnames(person.downstream()) == " ")) %>%
             formatStyle("likelihood",
